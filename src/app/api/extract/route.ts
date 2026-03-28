@@ -393,6 +393,7 @@ export async function POST(request: Request) {
           industries: industries || [],
           positioning: positioning || null,
           raw_text: rawText,
+          title: safeTitle,
           seniority: seniority || null,
           services: services || [],
           updated_at: new Date().toISOString(),

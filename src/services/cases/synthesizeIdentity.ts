@@ -25,7 +25,14 @@ type OpenAIResponse = {
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_TIMEOUT_MS = 15_000;
 const SYNTHESIS_MAX_OUTPUT_TOKENS = 260;
-const MAX_POSITIONING_WORDS = 20;
+const MAX_POSITIONING_WORDS = 12;
+const BANNED_POSITIONING_PHRASES = [
+  "consultant",
+  "specializing in",
+  "leveraging",
+  "solutions",
+  "dynamic professional",
+];
 
 const strategicKeywords = [
   "analysis",
@@ -202,6 +209,12 @@ function normalizePositioning(value: unknown) {
     return "";
   }
 
+  const normalizedLowercase = normalizedValue.toLocaleLowerCase("en-US");
+
+  if (BANNED_POSITIONING_PHRASES.some((phrase) => normalizedLowercase.includes(phrase))) {
+    return "";
+  }
+
   return normalizedValue.split(" ").slice(0, MAX_POSITIONING_WORDS).join(" ").trim();
 }
 
@@ -252,29 +265,20 @@ function pickHighestSeniority(cases: FreelancerCase[]): Seniority {
 function buildDeterministicPositioning(coreCapabilities: string[], industries: string[]) {
   const primaryCapability = coreCapabilities[0];
   const secondaryCapability = coreCapabilities[1];
-  const primaryIndustry = industries[0];
 
-  if (!primaryCapability && !primaryIndustry) {
-    return "Turns messy work into clearer decisions and structured execution.";
-  }
-
-  if (primaryCapability && secondaryCapability && primaryIndustry) {
-    return `Turns ${primaryIndustry} complexity into structured decisions through ${primaryCapability} and ${secondaryCapability}.`;
+  if (!primaryCapability && !secondaryCapability) {
+    return "Still defining your pattern. Add more cases.";
   }
 
   if (primaryCapability && secondaryCapability) {
-    return `Turns complex work into structured momentum through ${primaryCapability} and ${secondaryCapability}.`;
-  }
-
-  if (primaryCapability && primaryIndustry) {
-    return `Turns ${primaryIndustry} complexity into structured progress through ${primaryCapability}.`;
+    return `Turns complexity into action through ${primaryCapability} and ${secondaryCapability}.`;
   }
 
   if (primaryCapability) {
-    return `Turns ambiguous work into structured progress through ${primaryCapability}.`;
+    return `Turns ambiguity into execution through ${primaryCapability}.`;
   }
 
-  return "Turns industry complexity into structured progress.";
+  return "Still defining your pattern. Add more cases.";
 }
 
 function normalizeSynthesizedIdentity(value: unknown, fallback: SynthesizedIdentity) {
@@ -341,11 +345,14 @@ async function fetchSynthesizedIdentity({
                   '{ "positioning": string, "coreCapabilities": string[], "functionalSkills": string[], "industries": string[], "seniority": string }',
                   "",
                   "RULES",
-                  "- positioning must be sharp, direct, credible, and max 20 words",
+                  "- positioning must be sharp, direct, credible, and max 12 words",
+                  '- positioning must use a transformation format like "Turns X into Y" or "Builds X by doing Y"',
                   "- coreCapabilities are strategic, reusable across industries, and max 5",
                   "- functionalSkills are technical or execution oriented and max 5",
                   "- industries max 3",
                   "- seniority must be one of Junior, Mid, Senior, Expert, Unknown",
+                  "- avoid industries unless they repeat clearly across cases",
+                  '- never use words or phrases like "consultant", "specializing in", "leveraging", "solutions", or "dynamic professional"',
                 ].join("\n"),
               },
             ],
@@ -409,7 +416,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
 
     return {
       positioning:
-        normalizeSignal(singleCase.positioning) || "Your identity is evolving as more signals are added.",
+        normalizePositioning(singleCase.positioning) || "Still defining your pattern. Add more cases.",
       coreCapabilities: splitSignalsResult.coreCapabilities,
       functionalSkills: splitSignalsResult.functionalSkills,
       industries: normalizeList(unique(clean(singleCase.industries ?? [])), 3),
@@ -432,7 +439,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
   const fallbackIdentity = {
     positioning:
       buildDeterministicPositioning(splitSignalsResult.coreCapabilities, coreIndustries) ||
-      "Your identity is evolving as more signals are added.",
+      "Still defining your pattern. Add more cases.",
     coreCapabilities: splitSignalsResult.coreCapabilities,
     functionalSkills: splitSignalsResult.functionalSkills,
     industries: coreIndustries,
@@ -451,6 +458,6 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
 
   return {
     ...result,
-    positioning: result.positioning || "Your identity is evolving as more signals are added.",
+    positioning: result.positioning || "Still defining your pattern. Add more cases.",
   };
 }

@@ -83,21 +83,13 @@ export function CaseExtractionFlow({
   const hasIndustries = Boolean(result && result.industries.length > 0);
 
   useEffect(() => {
-    if (!result) {
-      return;
-    }
-
-    console.log("DISPLAYING RESULT:", result);
-    console.log("UI RENDER VALUES:", {
-      positioning: result.positioning,
-      capabilities: result.capabilities,
-      industries: result.industries,
-      seniority: result.seniority,
-    });
-  }, [result]);
+    setText(initialText);
+    setResult(initialResult);
+    setCaseCount(initialCaseCount);
+    setCurrentCaseId(initialCaseId);
+  }, [initialCaseCount, initialCaseId, initialResult, initialText]);
 
   function goToWorkspace() {
-    console.log("NAVIGATING TO WORKSPACE");
     router.push("/freelancer?from=onboarding");
   }
 
@@ -118,7 +110,6 @@ export function CaseExtractionFlow({
       });
 
       const payload = (await response.json().catch(() => null)) as Partial<CaseExtractionResponse> | null;
-      console.log("UI RECEIVED:", payload);
 
       if (!response.ok) {
         return normalizeResult(payload);
@@ -126,7 +117,6 @@ export function CaseExtractionFlow({
 
       return normalizeResult(payload);
     } catch {
-      console.log("UI RECEIVED:", fallbackResult);
       return fallbackResult;
     }
   }
@@ -141,7 +131,6 @@ export function CaseExtractionFlow({
       setCurrentCaseId(extractionResult.caseId ?? currentCaseId);
       setCaseCount(extractionResult.caseCount ?? caseCount);
       persistLatestCaseExtraction(extractionResult);
-      console.log("CASE SAVED TRIGGERED");
       setIsRefining(false);
       router.refresh();
     } finally {
@@ -171,10 +160,10 @@ export function CaseExtractionFlow({
     <div className="case-flow">
       <Card
         className="case-flow__panel case-flow__panel--composer case-flow__panel--delayed"
-        title="Start with one thing you’ve done."
+        title={currentCaseId ? "Continue refining this case." : "Start with one thing you’ve done."}
       >
         <form className="stack" onSubmit={handleSubmit}>
-          <span className="case-flow__label">New example</span>
+          <span className="case-flow__label">{currentCaseId ? "Editing case" : "New example"}</span>
           <Textarea
             id="case-input"
             label="Tell me about something you worked on."

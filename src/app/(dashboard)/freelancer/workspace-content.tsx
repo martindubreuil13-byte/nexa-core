@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "../../../components/ui/button";
+import { createBrowserSupabaseClient } from "../../../lib/supabase/client";
 import type { FreelancerCase, WorkspaceIdentity } from "../../../services/cases";
 import { CaseItemActions } from "./case-item-actions";
 
@@ -46,6 +48,7 @@ export function WorkspaceContent({
   initialCases,
   initialIdentity,
 }: WorkspaceContentProps) {
+  const router = useRouter();
   const [cases, setCases] = useState(initialCases);
   const [identity, setIdentity] = useState(initialIdentity);
   const [notice, setNotice] = useState<string | null>(null);
@@ -59,6 +62,42 @@ export function WorkspaceContent({
     });
   }
 
+  function handleResetProfile() {
+    startTransition(async () => {
+      const supabase = createBrowserSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("freelancer_cases")
+        .delete()
+        .eq("freelancer_id", user.id);
+
+      if (error) {
+        window.alert(error.message);
+        return;
+      }
+
+      setCases([]);
+      setIdentity({
+        positioning: "",
+        coreCapabilities: [],
+        functionalSkills: [],
+        industries: [],
+        seniority: "Unknown",
+        supportCopy: "",
+      });
+      router.push("/onboarding/case");
+      router.refresh();
+    });
+  }
+
   const safeCases = (cases || []).map((freelancerCase) => ({
     ...freelancerCase,
     rawText: freelancerCase.rawText ?? "",
@@ -66,14 +105,20 @@ export function WorkspaceContent({
     industries: freelancerCase.industries ?? [],
   }));
   const safePositioning = identity.positioning?.trim() || "We're building your identity. Add more cases.";
+  const stateSupportCopy =
+    safeCases.length === 1
+      ? "You’ve started defining how you work. This is based on one example. Add 2–3 more to reveal your real pattern."
+      : "Your identity is evolving as patterns emerge from your work.";
 
   if (safeCases.length === 0) {
     return (
       <section className="workspace-empty">
         <div aria-hidden="true" className="workspace-empty__glow" />
-        <span className="workspace-section__eyebrow">No work yet</span>
-        <h1 className="workspace-empty__title">Add your first case to start building your profile.</h1>
-        <p className="workspace-empty__copy">Share one real example and start shaping your identity.</p>
+        <span className="workspace-section__eyebrow">Welcome to NEXA</span>
+        <h1 className="workspace-empty__title">Welcome to NEXA</h1>
+        <p className="workspace-empty__copy">
+          This isn&apos;t a freelance platform. We connect real capabilities with real problems.
+        </p>
         <div className="button-row">
           <Button href="/onboarding/case">+ Add your first case</Button>
         </div>
@@ -88,7 +133,9 @@ export function WorkspaceContent({
         <div className="workspace-hero__content">
           <span className="workspace-hero__eyebrow">NEXA understands you as</span>
           <h1 className="workspace-hero__title">{safePositioning}</h1>
-          {identity.supportCopy ? <p className="workspace-hero__support">{identity.supportCopy}</p> : null}
+          <p className="workspace-hero__support">
+            {safeCases.length >= 2 ? stateSupportCopy : stateSupportCopy}
+          </p>
           {identity.seniority !== "Unknown" ? (
             <div className="workspace-hero__meta">
               <span className="identity-chip identity-chip--soft">{identity.seniority}</span>
@@ -174,9 +221,14 @@ export function WorkspaceContent({
       </section>
 
       <section className="workspace-panel workspace-panel--wide workspace-cta">
-        <Button className="workspace-add-case" href="/onboarding/case" variant="secondary">
-          + Add another case
-        </Button>
+        <div className="button-row">
+          <Button className="workspace-add-case" href="/onboarding/case" variant="secondary">
+            + Add another case
+          </Button>
+          <Button disabled={isUpdating} onClick={handleResetProfile} variant="ghost">
+            {isUpdating ? "Resetting..." : "Reset profile"}
+          </Button>
+        </div>
       </section>
     </div>
   );

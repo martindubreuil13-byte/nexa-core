@@ -24,25 +24,11 @@ export default async function OnboardingCasePage({ searchParams }: OnboardingCas
   }
 
   const activeUser = user ?? authUser;
-  const { data: freelancerData, error: freelancerError } = await supabase
-    .from("freelancers")
-    .select("*")
-    .eq("user_id", activeUser.id)
-    .single();
-  const freelancer = freelancerData as { id: string } | null;
-
-  if (freelancerError || !freelancer) {
-    console.error("SUPABASE ERROR:", freelancerError);
-    console.error("Freelancer lookup failed:", freelancerError);
-
-    return <CaseExtractionFlow initialCaseCount={0} initialResult={null} />;
-  }
-
   const caseId = typeof params?.caseId === "string" && params.caseId.trim() ? params.caseId.trim() : null;
   const { count: caseCount, error: casesCountError } = await supabase
     .from("freelancer_cases")
     .select("id", { count: "exact", head: true })
-    .eq("freelancer_id", freelancer.id);
+    .eq("freelancer_id", activeUser.id);
 
   if (casesCountError) {
     console.error("SUPABASE ERROR:", casesCountError);
@@ -56,7 +42,7 @@ export default async function OnboardingCasePage({ searchParams }: OnboardingCas
       .from("freelancer_cases")
       .select("*")
       .eq("id", caseId)
-      .eq("freelancer_id", freelancer.id)
+      .eq("freelancer_id", activeUser.id)
       .maybeSingle();
 
     if (freelancerCaseError) {
