@@ -63,6 +63,14 @@ function normalizeSignal(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function clean(values: Array<string | null | undefined>) {
+  return values.filter((value): value is string => typeof value === "string" && Boolean(normalizeSignal(value)));
+}
+
+function unique(values: string[]) {
+  return [...new Set(values)];
+}
+
 function countOccurrences(values: string[]) {
   return values.reduce<Record<string, number>>((counts, value) => {
     const normalizedValue = normalizeSignal(value);
@@ -381,33 +389,45 @@ async function fetchSynthesizedIdentity({
   }
 }
 
-export async function synthesizeIdentity(cases: FreelancerCase[]): Promise<SynthesizedIdentity> {
-  if (cases.length === 0) {
-    return {
+export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefined): Promise<SynthesizedIdentity> {
+  if (!cases || cases.length === 0) {
+    const emptyResult: SynthesizedIdentity = {
       positioning: "",
       coreCapabilities: [],
       functionalSkills: [],
       industries: [],
       seniority: "Unknown",
     };
+
+    console.log("SYNTHESIS INPUT:", cases ?? []);
+    console.log("SYNTHESIS OUTPUT:", emptyResult);
+    return emptyResult;
   }
 
   if (cases.length === 1) {
     const [singleCase] = cases;
-    const splitSignalsResult = splitSignals(singleCase.capabilities ?? [], singleCase.services ?? []);
+    const splitSignalsResult = splitSignals(
+      unique(clean(singleCase.capabilities ?? [])),
+      unique(clean(singleCase.services ?? [])),
+    );
 
-    return {
-      positioning: normalizeSignal(singleCase.positioning),
+    const result = {
+      positioning:
+        normalizeSignal(singleCase.positioning) || "Your identity is evolving as more signals are added.",
       coreCapabilities: splitSignalsResult.coreCapabilities,
       functionalSkills: splitSignalsResult.functionalSkills,
-      industries: normalizeList(singleCase.industries ?? [], 3),
+      industries: normalizeList(unique(clean(singleCase.industries ?? [])), 3),
       seniority: singleCase.seniority ?? "Unknown",
     };
+
+    console.log("SYNTHESIS INPUT:", cases);
+    console.log("SYNTHESIS OUTPUT:", result);
+    return result;
   }
 
-  const allCapabilities = cases.flatMap((freelancerCase) => freelancerCase.capabilities || []);
-  const allServices = cases.flatMap((freelancerCase) => freelancerCase.services || []);
-  const allIndustries = cases.flatMap((freelancerCase) => freelancerCase.industries || []);
+  const allCapabilities = clean(cases.flatMap((freelancerCase) => freelancerCase.capabilities || []));
+  const allServices = clean(cases.flatMap((freelancerCase) => freelancerCase.services || []));
+  const allIndustries = clean(cases.flatMap((freelancerCase) => freelancerCase.industries || []));
   const capabilityCounts = countOccurrences(allCapabilities);
   const serviceCounts = countOccurrences(allServices);
   const industryCounts = countOccurrences(allIndustries);
@@ -416,9 +436,11 @@ export async function synthesizeIdentity(cases: FreelancerCase[]): Promise<Synth
   const splitSignalsResult = splitSignals(recurringCapabilities, recurringServices);
   const coreIndustries = sortByFrequency(industryCounts).slice(0, 3);
   const seniority = pickHighestSeniority(cases);
-  const combinedContext = cases.map((freelancerCase) => freelancerCase.rawText).join("\n\n");
+  const combinedContext = cases.map((freelancerCase) => freelancerCase.rawText ?? "").join("\n\n");
   const fallbackIdentity = {
-    positioning: buildDeterministicPositioning(splitSignalsResult.coreCapabilities, coreIndustries),
+    positioning:
+      buildDeterministicPositioning(splitSignalsResult.coreCapabilities, coreIndustries) ||
+      "Your identity is evolving as more signals are added.",
     coreCapabilities: splitSignalsResult.coreCapabilities,
     functionalSkills: splitSignalsResult.functionalSkills,
     industries: coreIndustries,
@@ -433,5 +455,13 @@ export async function synthesizeIdentity(cases: FreelancerCase[]): Promise<Synth
     seniority,
   });
 
-  return normalizeSynthesizedIdentity(synthesizedIdentity, fallbackIdentity);
+  const result = normalizeSynthesizedIdentity(synthesizedIdentity, fallbackIdentity);
+
+  console.log("SYNTHESIS INPUT:", cases);
+  console.log("SYNTHESIS OUTPUT:", result);
+
+  return {
+    ...result,
+    positioning: result.positioning || "Your identity is evolving as more signals are added.",
+  };
 }

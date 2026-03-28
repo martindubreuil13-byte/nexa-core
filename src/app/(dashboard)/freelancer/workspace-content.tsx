@@ -11,17 +11,29 @@ type WorkspaceContentProps = {
   initialIdentity: WorkspaceIdentity;
 };
 
-function getCasePreview(rawText: string) {
-  const normalizedText = rawText.replace(/\s+/g, " ").trim();
+function getCasePreview(rawText: string | null | undefined) {
+  const safeText = rawText ?? "";
+  const normalizedText = safeText.replace(/\s+/g, " ").trim();
+
+  if (!normalizedText) {
+    return "No description available";
+  }
+
   return normalizedText.length > 120 ? `${normalizedText.slice(0, 117)}...` : normalizedText;
 }
 
-function getCaseTitle(rawText: string) {
-  const normalizedText = rawText.replace(/\s+/g, " ").trim();
+function getCaseTitle(rawText: string | null | undefined) {
+  const safeText = rawText ?? "";
+  const normalizedText = safeText.replace(/\s+/g, " ").trim();
+
+  if (!normalizedText) {
+    return "No description available";
+  }
+
   const firstSentence = normalizedText.match(/^(.+?[.!?])(?:\s|$)/u)?.[1]?.trim();
   const title = firstSentence && firstSentence.length <= 100 ? firstSentence : normalizedText.slice(0, 100).trim();
 
-  return title || "Untitled case";
+  return title || "No description available";
 }
 
 type DeleteResultPayload = {
@@ -47,7 +59,15 @@ export function WorkspaceContent({
     });
   }
 
-  if (cases.length === 0) {
+  const safeCases = (cases || []).map((freelancerCase) => ({
+    ...freelancerCase,
+    rawText: freelancerCase.rawText ?? "",
+    capabilities: freelancerCase.capabilities ?? [],
+    industries: freelancerCase.industries ?? [],
+  }));
+  const safePositioning = identity.positioning?.trim() || "We're building your identity. Add more cases.";
+
+  if (safeCases.length === 0) {
     return (
       <section className="workspace-empty">
         <div aria-hidden="true" className="workspace-empty__glow" />
@@ -67,7 +87,7 @@ export function WorkspaceContent({
         <div aria-hidden="true" className="workspace-hero__glow" />
         <div className="workspace-hero__content">
           <span className="workspace-hero__eyebrow">NEXA understands you as</span>
-          <h1 className="workspace-hero__title">{identity.positioning}</h1>
+          <h1 className="workspace-hero__title">{safePositioning}</h1>
           {identity.supportCopy ? <p className="workspace-hero__support">{identity.supportCopy}</p> : null}
           {identity.seniority !== "Unknown" ? (
             <div className="workspace-hero__meta">
@@ -131,7 +151,7 @@ export function WorkspaceContent({
         </div>
 
         <div className="workspace-case-list">
-          {cases.map((freelancerCase, index) => (
+          {safeCases.map((freelancerCase, index) => (
             <article className="workspace-case" key={freelancerCase.id}>
               <div className="workspace-case__meta">
                 <div className="workspace-case__heading">

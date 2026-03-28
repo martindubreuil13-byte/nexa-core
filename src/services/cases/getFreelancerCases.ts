@@ -9,7 +9,7 @@ export type FreelancerCase = {
   id: string;
   industries: string[];
   positioning: string;
-  rawText: string;
+  rawText: string | null;
   seniority: "Junior" | "Mid" | "Senior" | "Expert" | "Unknown";
   services: string[];
 };
@@ -37,7 +37,7 @@ export async function getFreelancerCases(
   return freelancerCases.map((freelancerCase) => ({
     id: freelancerCase.id,
     freelancerId: freelancerCase.freelancer_id,
-    rawText: freelancerCase.raw_text,
+    rawText: freelancerCase.raw_text ?? null,
     positioning: freelancerCase.positioning ?? "",
     capabilities: readStringArray(freelancerCase.capabilities),
     industries: readStringArray(freelancerCase.industries),
