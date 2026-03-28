@@ -25,8 +25,10 @@ type OpenAIResponse = {
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const OPENAI_TIMEOUT_MS = 15_000;
 const SYNTHESIS_MAX_OUTPUT_TOKENS = 260;
-const MAX_POSITIONING_WORDS = 12;
+const MAX_POSITIONING_WORDS = 10;
 const BANNED_POSITIONING_PHRASES = [
+  "strategic",
+  "insights",
   "consultant",
   "specializing in",
   "leveraging",
@@ -262,23 +264,23 @@ function pickHighestSeniority(cases: FreelancerCase[]): Seniority {
   }, "Unknown");
 }
 
-function buildDeterministicPositioning(coreCapabilities: string[], industries: string[]) {
+function buildDeterministicPositioning(coreCapabilities: string[]) {
   const primaryCapability = coreCapabilities[0];
   const secondaryCapability = coreCapabilities[1];
 
   if (!primaryCapability && !secondaryCapability) {
-    return "Still defining your pattern. Add more cases.";
+    return "Still defining your pattern.";
   }
 
   if (primaryCapability && secondaryCapability) {
-    return `Turns complexity into action through ${primaryCapability} and ${secondaryCapability}.`;
+    return `Turns ideas into execution through ${primaryCapability} and ${secondaryCapability}.`;
   }
 
   if (primaryCapability) {
-    return `Turns ambiguity into execution through ${primaryCapability}.`;
+    return `Turns ideas into execution through ${primaryCapability}.`;
   }
 
-  return "Still defining your pattern. Add more cases.";
+  return "Still defining your pattern.";
 }
 
 function normalizeSynthesizedIdentity(value: unknown, fallback: SynthesizedIdentity) {
@@ -345,14 +347,16 @@ async function fetchSynthesizedIdentity({
                   '{ "positioning": string, "coreCapabilities": string[], "functionalSkills": string[], "industries": string[], "seniority": string }',
                   "",
                   "RULES",
-                  "- positioning must be sharp, direct, credible, and max 12 words",
+                  "- positioning must be sharp, direct, credible, and max 10 words",
                   '- positioning must use a transformation format like "Turns X into Y" or "Builds X by doing Y"',
+                  "- focus on transformation first",
+                  "- describe what the person does, not how they sound",
                   "- coreCapabilities are strategic, reusable across industries, and max 5",
                   "- functionalSkills are technical or execution oriented and max 5",
                   "- industries max 3",
                   "- seniority must be one of Junior, Mid, Senior, Expert, Unknown",
                   "- avoid industries unless they repeat clearly across cases",
-                  '- never use words or phrases like "consultant", "specializing in", "leveraging", "solutions", or "dynamic professional"',
+                  '- never use words or phrases like "strategic", "insights", "consultant", "specializing in", "leveraging", "solutions", or "dynamic professional"',
                 ].join("\n"),
               },
             ],
@@ -416,7 +420,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
 
     return {
       positioning:
-        normalizePositioning(singleCase.positioning) || "Still defining your pattern. Add more cases.",
+        normalizePositioning(singleCase.positioning) || "Still defining your pattern.",
       coreCapabilities: splitSignalsResult.coreCapabilities,
       functionalSkills: splitSignalsResult.functionalSkills,
       industries: normalizeList(unique(clean(singleCase.industries ?? [])), 3),
@@ -438,8 +442,8 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
   const combinedContext = cases.map((freelancerCase) => freelancerCase.rawText ?? "").join("\n\n");
   const fallbackIdentity = {
     positioning:
-      buildDeterministicPositioning(splitSignalsResult.coreCapabilities, coreIndustries) ||
-      "Still defining your pattern. Add more cases.",
+      normalizePositioning(buildDeterministicPositioning(splitSignalsResult.coreCapabilities)) ||
+      "Still defining your pattern.",
     coreCapabilities: splitSignalsResult.coreCapabilities,
     functionalSkills: splitSignalsResult.functionalSkills,
     industries: coreIndustries,
@@ -458,6 +462,6 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
 
   return {
     ...result,
-    positioning: result.positioning || "Still defining your pattern. Add more cases.",
+    positioning: result.positioning || "Still defining your pattern.",
   };
 }
