@@ -132,7 +132,6 @@ export function CaseExtractionFlow({
       setCaseCount(extractionResult.caseCount ?? caseCount);
       persistLatestCaseExtraction(extractionResult);
       setIsRefining(false);
-      router.refresh();
     } finally {
       setIsLoading(false);
     }
@@ -193,7 +192,10 @@ export function CaseExtractionFlow({
 
       {result ? (
         <>
-          <Card className="case-flow__panel case-flow__result case-flow__panel--delayed" title="NEXA understands you as">
+          <Card
+            className="case-flow__panel case-flow__result case-flow__panel--delayed"
+            title="NEXA understands this case as:"
+          >
             <div className="case-flow__positioning">
               {hasPositioning ? (
                 <p className="case-flow__positioning-copy">{getPositioningCopy(result)}</p>
@@ -239,6 +241,9 @@ export function CaseExtractionFlow({
 
             <p className="case-flow__improve-copy">
               This is a first pass. The more you share, the sharper it becomes.
+            </p>
+            <p className="case-flow__trust-copy">
+              Each case adds a visible signal, so you can see how your identity evolves.
             </p>
           </Card>
 

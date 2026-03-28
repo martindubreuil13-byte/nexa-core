@@ -10,6 +10,12 @@ type SynthesizedIdentity = {
   seniority: Seniority;
 };
 
+type CaseTransformation = {
+  action: string;
+  input: string;
+  output: string;
+};
+
 type OpenAIContentBlock = {
   text?: string;
   type?: string;
@@ -66,6 +72,89 @@ const executionKeywords = [
   "prototype",
   "shipping",
   "workflow",
+];
+
+const actionPatternKeywords: Array<{ action: string; keywords: string[] }> = [
+  {
+    action: "structure",
+    keywords: [
+      "architecture",
+      "design",
+      "frame",
+      "map",
+      "model",
+      "organize",
+      "plan",
+      "positioning",
+      "research",
+      "structure",
+      "structuring",
+    ],
+  },
+  {
+    action: "build",
+    keywords: [
+      "automation",
+      "build",
+      "building",
+      "create",
+      "deliver",
+      "delivery",
+      "develop",
+      "implementation",
+      "implement",
+      "integration",
+      "launch",
+      "prototype",
+      "ship",
+    ],
+  },
+  {
+    action: "redesign",
+    keywords: ["redesign", "reframe", "reshape", "rework", "reposition", "transform"],
+  },
+  {
+    action: "optimize",
+    keywords: ["improve", "optimization", "optimize", "streamline", "workflow"],
+  },
+];
+
+const inputPatternKeywords: Array<{ input: string; keywords: string[] }> = [
+  {
+    input: "messy operations",
+    keywords: ["delivery", "execution", "operations", "process", "system", "workflow"],
+  },
+  {
+    input: "ambiguity",
+    keywords: ["ambiguous", "ambiguity", "complex", "messy", "unclear", "undefined"],
+  },
+  {
+    input: "ideas",
+    keywords: ["business", "concept", "idea", "offer", "product", "service", "venture"],
+  },
+  {
+    input: "opportunities",
+    keywords: ["demand", "feasibility", "market", "opportunity", "research"],
+  },
+];
+
+const outputPatternKeywords: Array<{ output: string; keywords: string[] }> = [
+  {
+    output: "repeatable systems",
+    keywords: ["operations", "process", "system", "workflow"],
+  },
+  {
+    output: "executable businesses",
+    keywords: ["business", "model", "offer", "service", "venture"],
+  },
+  {
+    output: "working platforms",
+    keywords: ["app", "platform", "product", "software", "tool"],
+  },
+  {
+    output: "executable decisions",
+    keywords: ["analysis", "finance", "forecast", "modeling", "research"],
+  },
 ];
 
 function normalizeSignal(value: string) {
@@ -229,6 +318,128 @@ function matchesKeyword(value: string, keywords: string[]) {
   return keywords.some((keyword) => normalizedValue.includes(keyword));
 }
 
+function countByKey(values: string[]) {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    if (!value) {
+      return counts;
+    }
+
+    counts[value] = (counts[value] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function pickMostFrequentValue(values: string[], fallback: string) {
+  const counts = countByKey(values);
+  const [winner] = Object.entries(counts).sort((left, right) => {
+    if (right[1] !== left[1]) {
+      return right[1] - left[1];
+    }
+
+    return left[0].localeCompare(right[0], "en-US", { sensitivity: "base" });
+  });
+
+  return winner?.[0] ?? fallback;
+}
+
+function findPatternValue(text: string, patterns: Array<{ [key: string]: string | string[] }>, key: string) {
+  for (const pattern of patterns) {
+    const label = pattern[key];
+    const keywords = pattern.keywords;
+
+    if (typeof label !== "string" || !Array.isArray(keywords)) {
+      continue;
+    }
+
+    if (keywords.some((keyword) => text.includes(keyword))) {
+      return label;
+    }
+  }
+
+  return "";
+}
+
+function extractPositioningTransformation(positioning: string) {
+  const normalizedPositioning = normalizeSignal(positioning);
+
+  if (!normalizedPositioning) {
+    return null;
+  }
+
+  const turnsMatch = normalizedPositioning.match(/^Turns\s+(.+?)\s+into\s+(.+?)(?:\s+by\s+|\s+through\s+|[.!?]|$)/iu);
+
+  if (turnsMatch?.[1] && turnsMatch?.[2]) {
+    return {
+      action: "turns",
+      input: normalizeSignal(turnsMatch[1]),
+      output: normalizeSignal(turnsMatch[2]),
+    };
+  }
+
+  const buildsMatch = normalizedPositioning.match(/^Builds\s+(.+?)\s+by\s+(.+?)(?:[.!?]|$)/iu);
+
+  if (buildsMatch?.[1] && buildsMatch?.[2]) {
+    return {
+      action: "builds",
+      input: "ideas",
+      output: normalizeSignal(buildsMatch[1]),
+    };
+  }
+
+  return null;
+}
+
+function extractCaseTransformation(freelancerCase: FreelancerCase): CaseTransformation {
+  const positioningTransformation = extractPositioningTransformation(freelancerCase.positioning);
+
+  if (positioningTransformation) {
+    return positioningTransformation;
+  }
+
+  const searchableText = normalizeSignal(
+    [
+      freelancerCase.rawText,
+      ...(freelancerCase.capabilities ?? []),
+      ...(freelancerCase.services ?? []),
+      ...(freelancerCase.industries ?? []),
+    ].join(" "),
+  ).toLocaleLowerCase("en-US");
+
+  const action = findPatternValue(searchableText, actionPatternKeywords, "action") || "structure";
+  const inferredInput = findPatternValue(searchableText, inputPatternKeywords, "input");
+  const inferredOutput = findPatternValue(searchableText, outputPatternKeywords, "output");
+
+  if (action === "build") {
+    return {
+      action,
+      input: inferredInput || "ideas",
+      output: inferredOutput || "working platforms",
+    };
+  }
+
+  if (action === "redesign") {
+    return {
+      action,
+      input: inferredInput || "scattered work",
+      output: inferredOutput || "clear direction",
+    };
+  }
+
+  if (action === "optimize") {
+    return {
+      action,
+      input: inferredInput || "messy operations",
+      output: inferredOutput || "repeatable systems",
+    };
+  }
+
+  return {
+    action,
+    input: inferredInput || "ambiguity",
+    output: inferredOutput || "structured execution",
+  };
+}
+
 function splitSignals(capabilities: string[], services: string[]) {
   const normalizedCapabilities = normalizeList(capabilities, 10);
   const normalizedServices = normalizeList(services, 10);
@@ -283,6 +494,31 @@ function buildDeterministicPositioning(coreCapabilities: string[]) {
   return "Still defining your pattern.";
 }
 
+function buildTransformationPositioning(transformations: CaseTransformation[]) {
+  if (transformations.length === 0) {
+    return "";
+  }
+
+  const dominantAction = pickMostFrequentValue(
+    transformations.map((transformation) => transformation.action),
+    "structure",
+  );
+  const dominantInput = pickMostFrequentValue(
+    transformations.map((transformation) => transformation.input),
+    dominantAction === "build" ? "ideas" : "ambiguity",
+  );
+  const dominantOutput = pickMostFrequentValue(
+    transformations.map((transformation) => transformation.output),
+    dominantAction === "build" ? "working platforms" : "structured execution",
+  );
+
+  if (dominantAction === "build") {
+    return `Builds ${dominantOutput} by structuring ${dominantInput}.`;
+  }
+
+  return `Turns ${dominantInput} into ${dominantOutput}.`;
+}
+
 function normalizeSynthesizedIdentity(value: unknown, fallback: SynthesizedIdentity) {
   const candidate =
     value && typeof value === "object"
@@ -310,12 +546,14 @@ async function fetchSynthesizedIdentity({
   functionalSkills,
   industries,
   seniority,
+  transformations,
 }: {
   combinedContext: string;
   coreCapabilities: string[];
   functionalSkills: string[];
   industries: string[];
   seniority: Seniority;
+  transformations: CaseTransformation[];
 }) {
   if (!process.env.OPENAI_API_KEY) {
     return null;
@@ -349,8 +587,10 @@ async function fetchSynthesizedIdentity({
                   "RULES",
                   "- positioning must be sharp, direct, credible, and max 10 words",
                   '- positioning must use a transformation format like "Turns X into Y" or "Builds X by doing Y"',
-                  "- focus on transformation first",
-                  "- describe what the person does, not how they sound",
+                  "- focus on the dominant recurring transformation, not an average summary",
+                  "- prioritize repeated actions like structure, build, and redesign",
+                  "- ignore one-off domains and surface-level wording",
+                  "- describe what the person repeatedly does, not how they sound",
                   "- coreCapabilities are strategic, reusable across industries, and max 5",
                   "- functionalSkills are technical or execution oriented and max 5",
                   "- industries max 3",
@@ -369,6 +609,14 @@ async function fetchSynthesizedIdentity({
                 text: [
                   "Combined context:",
                   combinedContext,
+                  "",
+                  "Per-case transformations:",
+                  transformations
+                    .map(
+                      (transformation, index) =>
+                        `Case ${index + 1}: input=${transformation.input}; action=${transformation.action}; output=${transformation.output}`,
+                    )
+                    .join("\n"),
                   "",
                   `Recurring strategic signals: ${coreCapabilities.join(", ") || "None"}`,
                   `Recurring execution signals: ${functionalSkills.join(", ") || "None"}`,
@@ -431,6 +679,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
   const allCapabilities = clean(cases.flatMap((freelancerCase) => freelancerCase.capabilities || []));
   const allServices = clean(cases.flatMap((freelancerCase) => freelancerCase.services || []));
   const allIndustries = clean(cases.flatMap((freelancerCase) => freelancerCase.industries || []));
+  const transformations = cases.map(extractCaseTransformation);
   const capabilityCounts = countOccurrences(allCapabilities);
   const serviceCounts = countOccurrences(allServices);
   const industryCounts = countOccurrences(allIndustries);
@@ -442,6 +691,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
   const combinedContext = cases.map((freelancerCase) => freelancerCase.rawText ?? "").join("\n\n");
   const fallbackIdentity = {
     positioning:
+      normalizePositioning(buildTransformationPositioning(transformations)) ||
       normalizePositioning(buildDeterministicPositioning(splitSignalsResult.coreCapabilities)) ||
       "Still defining your pattern.",
     coreCapabilities: splitSignalsResult.coreCapabilities,
@@ -456,6 +706,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
     functionalSkills: splitSignalsResult.functionalSkills,
     industries: coreIndustries,
     seniority,
+    transformations,
   });
 
   const result = normalizeSynthesizedIdentity(synthesizedIdentity, fallbackIdentity);
