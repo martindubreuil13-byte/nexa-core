@@ -19,7 +19,7 @@ function getCasePreview(rawText: string | null | undefined) {
     return "No description available";
   }
 
-  return normalizedText.length > 120 ? `${normalizedText.slice(0, 117)}...` : normalizedText;
+  return normalizedText.length > 140 ? `${normalizedText.slice(0, 137)}...` : normalizedText;
 }
 
 function getCaseTitle(rawText: string | null | undefined) {
@@ -72,7 +72,7 @@ export function WorkspaceContent({
       <section className="workspace-empty">
         <div aria-hidden="true" className="workspace-empty__glow" />
         <span className="workspace-section__eyebrow">No work yet</span>
-        <h1 className="workspace-empty__title">No work yet. Add your first case.</h1>
+        <h1 className="workspace-empty__title">Add your first case to start building your profile.</h1>
         <p className="workspace-empty__copy">Share one real example and start shaping your identity.</p>
         <div className="button-row">
           <Button href="/onboarding/case">+ Add your first case</Button>

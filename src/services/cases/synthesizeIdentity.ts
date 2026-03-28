@@ -391,17 +391,13 @@ async function fetchSynthesizedIdentity({
 
 export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefined): Promise<SynthesizedIdentity> {
   if (!cases || cases.length === 0) {
-    const emptyResult: SynthesizedIdentity = {
+    return {
       positioning: "",
       coreCapabilities: [],
       functionalSkills: [],
       industries: [],
       seniority: "Unknown",
     };
-
-    console.log("SYNTHESIS INPUT:", cases ?? []);
-    console.log("SYNTHESIS OUTPUT:", emptyResult);
-    return emptyResult;
   }
 
   if (cases.length === 1) {
@@ -411,7 +407,7 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
       unique(clean(singleCase.services ?? [])),
     );
 
-    const result = {
+    return {
       positioning:
         normalizeSignal(singleCase.positioning) || "Your identity is evolving as more signals are added.",
       coreCapabilities: splitSignalsResult.coreCapabilities,
@@ -419,10 +415,6 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
       industries: normalizeList(unique(clean(singleCase.industries ?? [])), 3),
       seniority: singleCase.seniority ?? "Unknown",
     };
-
-    console.log("SYNTHESIS INPUT:", cases);
-    console.log("SYNTHESIS OUTPUT:", result);
-    return result;
   }
 
   const allCapabilities = clean(cases.flatMap((freelancerCase) => freelancerCase.capabilities || []));
@@ -456,9 +448,6 @@ export async function synthesizeIdentity(cases: FreelancerCase[] | null | undefi
   });
 
   const result = normalizeSynthesizedIdentity(synthesizedIdentity, fallbackIdentity);
-
-  console.log("SYNTHESIS INPUT:", cases);
-  console.log("SYNTHESIS OUTPUT:", result);
 
   return {
     ...result,
