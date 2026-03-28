@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { CaseExtractionResult } from "../../../lib/extract/schema";
-import { createServerSupabaseClient } from "../../../lib/supabase/server";
+import { createClient } from "../../../lib/supabase/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -265,34 +265,29 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const text = typeof body?.text === "string" ? sanitizeCaseText(body.text) : "";
   const caseId = typeof body?.caseId === "string" && body.caseId.trim() ? body.caseId.trim() : null;
-  const supabase = await createServerSupabaseClient();
+  const supabase = await createClient();
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
-  const userId = user?.id;
 
   if (userError) {
     console.error("SUPABASE ERROR:", userError);
   }
 
   console.log("INPUT TEXT:", text);
-  console.log("AUTH USER ID:", userId ?? null);
+  console.log("AUTH USER:", user?.id ?? null);
 
   if (!text) {
-    console.log("FINAL OUTPUT SENT:", JSON.stringify(emptyResult, null, 2));
-    return NextResponse.json(emptyResult, { status: 400 });
+    return NextResponse.json({ error: "Missing input" }, { status: 400 });
   }
 
-  if (!userId) {
-    return NextResponse.json(
-      {
-        ...emptyResult,
-        error: "Authenticated user required.",
-      },
-      { status: 401 },
-    );
+  if (!user) {
+    console.error("AUTH ERROR: No user found");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const authUserId = user.id;
 
   if (!process.env.OPENAI_API_KEY) {
     const missingKeyError = new Error("Missing OPENAI_API_KEY");
@@ -380,9 +375,9 @@ export async function POST(request: Request) {
   const seniority = aiResult.seniority;
 
   try {
-    console.log("USER ID:", userId);
-    console.log("RAW TEXT:", text);
-    console.log("INSERT USER ID:", userId);
+    console.log("INSERT USER:", authUserId);
+    console.log("RAW TEXT:", rawText);
+    console.log("INSERT USER ID:", authUserId);
     console.log("AI RESULT:", aiResult);
     console.log("INSERT DATA:", {
       positioning,
@@ -403,7 +398,7 @@ export async function POST(request: Request) {
           updated_at: new Date().toISOString(),
         } as never)
         .eq("id", caseId)
-        .eq("freelancer_id", userId)
+        .eq("freelancer_id", authUserId)
         .select("id")
         .maybeSingle();
 
@@ -419,7 +414,7 @@ export async function POST(request: Request) {
         .from("freelancer_cases")
         .insert([
           {
-            freelancer_id: userId,
+            freelancer_id: authUserId,
             title: safeTitle,
             case_type: "general",
             raw_text: rawText,
@@ -438,7 +433,7 @@ export async function POST(request: Request) {
         console.error("CASE INSERT ERROR:", insertCaseError);
       } else {
         console.log("INSERT PAYLOAD:", {
-          freelancer_id: userId,
+          freelancer_id: authUserId,
           title: safeTitle,
           case_type: "general",
         });
@@ -456,14 +451,14 @@ export async function POST(request: Request) {
     }
 
     console.log("CASE SAVED:", {
-      freelancerId: userId,
+      freelancerId: authUserId,
       caseId: savedCaseId,
     });
 
     const { data: verify, error: verifyError } = await supabase
       .from("freelancer_cases")
       .select("*")
-      .eq("freelancer_id", userId);
+      .eq("freelancer_id", authUserId);
 
     if (verifyError) {
       console.error("VERIFY CASE ERROR:", verifyError);

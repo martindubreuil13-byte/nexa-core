@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import type { Database } from "../../types/database";
 import { getRequiredEnv } from "../utils/env";
 
-export async function createServerSupabaseClient() {
+export async function createClient() {
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
@@ -20,7 +20,11 @@ export async function createServerSupabaseClient() {
         setAll(cookiesToSet) {
           try {
             cookiesToSet.forEach(({ name, options, value }) => {
-              cookieStore.set(name, value, options);
+              cookieStore.set({
+                name,
+                value,
+                ...options,
+              });
             });
           } catch {
             // Server Components cannot always mutate cookies directly.
@@ -30,3 +34,5 @@ export async function createServerSupabaseClient() {
     },
   );
 }
+
+export const createServerSupabaseClient = createClient;
