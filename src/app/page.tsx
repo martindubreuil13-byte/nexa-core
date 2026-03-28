@@ -1,6 +1,22 @@
-import Link from "next/link";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-export default function HomePage() {
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
+import { getUserState } from "../lib/user/getUserState";
+
+export default async function HomePage() {
+  try {
+    const userState = await getUserState();
+
+    if (userState.user) {
+      redirect(userState.hasCases ? "/freelancer" : "/onboarding/case");
+    }
+  } catch (error) {
+    console.error("SUPABASE ERROR:", error);
+  }
+
   return (
     <section className="decision-gate">
       <div aria-hidden="true" className="decision-gate__atmosphere">

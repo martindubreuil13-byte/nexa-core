@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { createServerSupabaseClient } from "../../../lib/supabase/server";
+import { getUserState } from "../../../lib/user/getUserState";
 
 function getStringValue(value: FormDataEntryValue | null) {
   return typeof value === "string" ? value.trim() : "";
@@ -36,5 +37,14 @@ export async function signupAction(formData: FormData) {
     redirectWithError(error.message);
   }
 
-  redirect("/freelancer");
+  let hasCases = false;
+
+  try {
+    const userState = await getUserState();
+    hasCases = userState.hasCases;
+  } catch (userStateError) {
+    console.error("SUPABASE ERROR:", userStateError);
+  }
+
+  redirect(hasCases ? "/freelancer" : "/onboarding/case");
 }

@@ -9,5 +9,5 @@ export async function logoutAction() {
 
   await supabase.auth.signOut();
 
-  redirect("/login");
+  redirect("/");
 }

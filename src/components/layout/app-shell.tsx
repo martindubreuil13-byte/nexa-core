@@ -2,14 +2,15 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { logoutAction } from "../../app/(auth)/logout/actions";
-import { getUser } from "../../lib/auth/getUser";
+import { getUserState } from "../../lib/user/getUserState";
 
 type AppShellProps = {
   children: ReactNode;
 };
 
 export async function AppShell({ children }: AppShellProps) {
-  const user = await getUser();
+  const { hasCases, user } = await getUserState();
+  const workspaceHref = hasCases ? "/freelancer" : "/onboarding/case";
 
   return (
     <div className="app-shell">
@@ -23,12 +24,21 @@ export async function AppShell({ children }: AppShellProps) {
 
             <div className="app-shell__links">
               {user ? (
-                <form action={logoutAction}>
-                  <button className="app-shell__link app-shell__link--button" type="submit">
-                    Logout
-                  </button>
-                </form>
-              ) : null}
+                <>
+                  <Link className="app-shell__link" href={workspaceHref}>
+                    Workspace
+                  </Link>
+                  <form action={logoutAction}>
+                    <button className="app-shell__link app-shell__link--button" type="submit">
+                      Logout
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <Link className="app-shell__link" href="/login">
+                  Login
+                </Link>
+              )}
             </div>
           </div>
         </header>

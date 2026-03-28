@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { AuthFormShell } from "../../../components/forms/auth-form-shell";
-import { redirectIfAuthenticated } from "../../../lib/auth/redirectIfAuthenticated";
 import { SignupForm } from "./signup-form";
 
 type SignupPageProps = {
@@ -11,8 +10,6 @@ type SignupPageProps = {
 };
 
 export default async function SignupPage({ searchParams }: SignupPageProps) {
-  await redirectIfAuthenticated();
-
   const params = searchParams ? await searchParams : undefined;
   const error = Array.isArray(params?.error) ? params.error[0] : params?.error;
 

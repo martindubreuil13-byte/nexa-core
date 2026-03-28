@@ -55,28 +55,183 @@ export type Database = {
           updated_at?: string | null;
         };
       };
-      freelancer_profiles: {
+      freelancers: {
         Row: {
           id: string;
           user_id: string;
-          headline: string | null;
-          country: string | null;
           created_at: string;
           updated_at: string | null;
         };
         Insert: {
           id?: string;
           user_id: string;
-          headline?: string | null;
-          country?: string | null;
           created_at?: string;
           updated_at?: string | null;
         };
         Update: {
           id?: string;
           user_id?: string;
-          headline?: string | null;
-          country?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+      };
+      freelancer_ai_profiles: {
+        Row: {
+          id: string;
+          freelancer_id: string;
+          summary: string | null;
+          capabilities: Json | null;
+          industries: Json | null;
+          core_capabilities: Json | null;
+          extension_capabilities: Json | null;
+          core_industries: Json | null;
+          extension_industries: Json | null;
+          core_services: Json | null;
+          extension_services: Json | null;
+          expertise_tags: Json | null;
+          source_hash: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          freelancer_id: string;
+          summary?: string | null;
+          capabilities?: Json | null;
+          industries?: Json | null;
+          core_capabilities?: Json | null;
+          extension_capabilities?: Json | null;
+          core_industries?: Json | null;
+          extension_industries?: Json | null;
+          core_services?: Json | null;
+          extension_services?: Json | null;
+          expertise_tags?: Json | null;
+          source_hash?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          freelancer_id?: string;
+          summary?: string | null;
+          capabilities?: Json | null;
+          industries?: Json | null;
+          core_capabilities?: Json | null;
+          extension_capabilities?: Json | null;
+          core_industries?: Json | null;
+          extension_industries?: Json | null;
+          core_services?: Json | null;
+          extension_services?: Json | null;
+          expertise_tags?: Json | null;
+          source_hash?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+      };
+      freelancer_cases: {
+        Row: {
+          id: string;
+          freelancer_id: string;
+          title: string;
+          case_type: string;
+          raw_text: string;
+          positioning: string | null;
+          capabilities: Json | null;
+          industries: Json | null;
+          services: Json | null;
+          seniority: "Junior" | "Mid" | "Senior" | "Expert" | "Unknown" | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          freelancer_id: string;
+          title: string;
+          case_type: string;
+          raw_text: string;
+          positioning?: string | null;
+          capabilities?: Json | null;
+          industries?: Json | null;
+          services?: Json | null;
+          seniority?: "Junior" | "Mid" | "Senior" | "Expert" | "Unknown" | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          freelancer_id?: string;
+          title?: string;
+          case_type?: string;
+          raw_text?: string;
+          positioning?: string | null;
+          capabilities?: Json | null;
+          industries?: Json | null;
+          services?: Json | null;
+          seniority?: "Junior" | "Mid" | "Senior" | "Expert" | "Unknown" | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+      };
+      freelancer_certifications: {
+        Row: {
+          id: string;
+          freelancer_id: string;
+          title: string;
+          issuing_organization: string | null;
+          year: number | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          freelancer_id: string;
+          title: string;
+          issuing_organization?: string | null;
+          year?: number | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          freelancer_id?: string;
+          title?: string;
+          issuing_organization?: string | null;
+          year?: number | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+      };
+      certification_files: {
+        Row: {
+          id: string;
+          certification_id: string;
+          bucket_name: string;
+          storage_path: string;
+          file_name: string;
+          content_type: string | null;
+          file_size: number | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          certification_id: string;
+          bucket_name: string;
+          storage_path: string;
+          file_name: string;
+          content_type?: string | null;
+          file_size?: number | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          certification_id?: string;
+          bucket_name?: string;
+          storage_path?: string;
+          file_name?: string;
+          content_type?: string | null;
+          file_size?: number | null;
           created_at?: string;
           updated_at?: string | null;
         };

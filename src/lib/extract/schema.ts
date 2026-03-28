@@ -3,7 +3,7 @@ export type CaseExtractionResult = {
   industries: string[];
   positioning: string;
   services: string[];
-  seniority: "Junior" | "Mid" | "Senior" | "Expert";
+  seniority: "Junior" | "Mid" | "Senior" | "Expert" | "Unknown";
 };
 
 export const caseExtractionSchema = {
@@ -11,30 +11,33 @@ export const caseExtractionSchema = {
   properties: {
     capabilities: {
       type: "array",
-      maxItems: 6,
+      maxItems: 5,
       items: {
         type: "string",
       },
     },
     industries: {
       type: "array",
-      maxItems: 4,
+      maxItems: 3,
       items: {
         type: "string",
       },
     },
     services: {
       type: "array",
-      maxItems: 5,
+      maxItems: 4,
       items: {
         type: "string",
       },
     },
+    positioning: {
+      type: "string",
+    },
     seniority: {
       type: "string",
-      enum: ["Junior", "Mid", "Senior", "Expert"],
+      enum: ["Junior", "Mid", "Senior", "Expert", "Unknown"],
     },
   },
-  required: ["capabilities", "industries", "services", "seniority"],
+  required: ["capabilities", "industries", "services", "positioning", "seniority"],
   additionalProperties: false,
 } as const;

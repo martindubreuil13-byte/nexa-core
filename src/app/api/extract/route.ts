@@ -1,189 +1,487 @@
 import { NextResponse } from "next/server";
 
-import { caseExtractionSchema, type CaseExtractionResult } from "../../../lib/extract/schema";
-import { getRequiredEnv } from "../../../lib/utils/env";
+import type { CaseExtractionResult } from "../../../lib/extract/schema";
+import { createServerSupabaseClient } from "../../../lib/supabase/server";
+
+export const runtime = "nodejs";
+export const maxDuration = 30;
+
+type OpenAIContentBlock = {
+  text?: string;
+  type?: string;
+};
 
 type OpenAIResponse = {
   output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
+    content?: OpenAIContentBlock[];
   }>;
   output_text?: string;
 };
 
-const fallbackResult: CaseExtractionResult = {
+const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const MAX_INPUT_CHARS = 1500;
+const OPENAI_TIMEOUT_MS = 15_000;
+const EXTRACTION_MAX_OUTPUT_TOKENS = 320;
+const MODEL_TEMPERATURE = 0.2;
+
+const emptyResult: CaseExtractionResult = {
   capabilities: [],
   industries: [],
   positioning: "",
   services: [],
-  seniority: "Mid",
+  seniority: "Unknown",
 };
 
-function getOutputText(response: OpenAIResponse) {
-  if (typeof response.output_text === "string" && response.output_text.trim()) {
-    return response.output_text;
-  }
-
-  return response.output
-    ?.flatMap((item) => item.content ?? [])
-    .find((item) => item.type === "output_text" && typeof item.text === "string")
-    ?.text;
+function sanitizeCaseText(value: string) {
+  return value.trim().slice(0, MAX_INPUT_CHARS);
 }
 
-function hasStructuredData(result: Omit<CaseExtractionResult, "positioning">) {
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function cleanListItem(value: string) {
+  return normalizeWhitespace(value).replace(/^[`"'([{]+|[`"')\]}:;,.!?-]+$/g, "");
+}
+
+function isSeniority(value: unknown): value is CaseExtractionResult["seniority"] {
   return (
-    result.capabilities.length > 0 ||
-    result.industries.length > 0 ||
-    result.services.length > 0
+    value === "Junior" ||
+    value === "Mid" ||
+    value === "Senior" ||
+    value === "Expert" ||
+    value === "Unknown"
   );
+}
+
+function normalizeList(value: unknown, maxItems: number) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const item of value) {
+    if (typeof item !== "string") {
+      continue;
+    }
+
+    const cleaned = cleanListItem(item);
+
+    if (!cleaned) {
+      continue;
+    }
+
+    const key = cleaned.toLocaleLowerCase("en-US");
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    normalized.push(cleaned);
+
+    if (normalized.length >= maxItems) {
+      break;
+    }
+  }
+
+  return normalized;
+}
+
+function extractRawText(response: OpenAIResponse | null) {
+  console.log("=== FULL OPENAI RESPONSE ===");
+  console.dir(response, { depth: null });
+  console.log("RESPONSE output_text:", response?.output_text ?? null);
+  console.log("RESPONSE output:", response?.output ?? null);
+
+  let rawText = "";
+
+  try {
+    if (response?.output && Array.isArray(response.output)) {
+      for (const item of response.output) {
+        if (item.content && Array.isArray(item.content)) {
+          for (const block of item.content) {
+            console.log("RESPONSE content block:", block);
+
+            if (block.type === "output_text" || block.text) {
+              rawText += block.text || "";
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("TEXT EXTRACTION ERROR:", error);
+  }
+
+  if (!rawText && typeof response?.output_text === "string") {
+    rawText = response.output_text;
+  }
+
+  console.log("RAW TEXT:", rawText);
+
+  if (!rawText) {
+    console.error("NO TEXT EXTRACTED — CHECK RESPONSE STRUCTURE");
+  }
+
+  return rawText;
+}
+
+function tryParseJson(rawText: string) {
+  const trimmedText = rawText.trim();
+
+  if (!trimmedText) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmedText) as unknown;
+  } catch {
+    const fencedMatch = trimmedText.match(/```(?:json)?\s*([\s\S]*?)```/iu);
+
+    if (fencedMatch?.[1]) {
+      try {
+        return JSON.parse(fencedMatch[1]) as unknown;
+      } catch {
+        return null;
+      }
+    }
+
+    const firstBrace = trimmedText.indexOf("{");
+    const lastBrace = trimmedText.lastIndexOf("}");
+
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(trimmedText.slice(firstBrace, lastBrace + 1)) as unknown;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+}
+
+function validateExtractionShape(value: unknown) {
+  const candidate =
+    value && typeof value === "object"
+      ? (value as Partial<Record<keyof CaseExtractionResult, unknown>>)
+      : null;
+
+  const validation = {
+    hasCapabilities: Array.isArray(candidate?.capabilities),
+    hasIndustries: Array.isArray(candidate?.industries),
+    hasPositioning: typeof candidate?.positioning === "string",
+    hasServices: Array.isArray(candidate?.services),
+    hasSeniority: isSeniority(candidate?.seniority),
+    isObject: Boolean(candidate),
+  };
+
+  return {
+    isValid:
+      validation.isObject &&
+      validation.hasPositioning &&
+      validation.hasCapabilities &&
+      validation.hasIndustries &&
+      validation.hasServices &&
+      validation.hasSeniority,
+    validation,
+  };
+}
+
+function normalizeExtraction(parsed: unknown, rawText: string): CaseExtractionResult {
+  const candidate =
+    parsed && typeof parsed === "object"
+      ? (parsed as Partial<Record<keyof CaseExtractionResult | "skills", unknown>>)
+      : {};
+
+  return {
+    positioning:
+      typeof candidate.positioning === "string"
+        ? normalizeWhitespace(candidate.positioning)
+        : normalizeWhitespace(rawText),
+    capabilities: normalizeList(candidate.capabilities ?? candidate.skills, 5),
+    industries: normalizeList(candidate.industries, 3),
+    services: normalizeList(candidate.services, 4),
+    seniority: isSeniority(candidate.seniority) ? candidate.seniority : "Unknown",
+  };
+}
+
+async function fetchOpenAI(body: Record<string, unknown>) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+  try {
+    return await fetch(OPENAI_RESPONSES_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function callOpenAIText({
+  input,
+  maxOutputTokens,
+  model,
+}: {
+  input: Array<{
+    content: Array<{
+      text: string;
+      type: "input_text";
+    }>;
+    role: "system" | "user";
+  }>;
+  maxOutputTokens: number;
+  model: string;
+}) {
+  const response = await fetchOpenAI({
+    model,
+    input,
+    max_output_tokens: maxOutputTokens,
+    temperature: MODEL_TEMPERATURE,
+  });
+  const payload = (await response.json().catch(() => null)) as OpenAIResponse | null;
+  const rawText = extractRawText(payload);
+
+  return {
+    ok: response.ok,
+    payload,
+    rawText,
+    status: response.status,
+    statusText: response.statusText,
+  };
 }
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
+  const text = typeof body?.text === "string" ? sanitizeCaseText(body.text) : "";
+  const caseId = typeof body?.caseId === "string" && body.caseId.trim() ? body.caseId.trim() : null;
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+  const userId = user?.id;
+
+  if (userError) {
+    console.error("SUPABASE ERROR:", userError);
+  }
+
+  console.log("INPUT TEXT:", text);
+  console.log("AUTH USER ID:", userId ?? null);
 
   if (!text) {
-    return NextResponse.json(fallbackResult);
+    console.log("FINAL OUTPUT SENT:", JSON.stringify(emptyResult, null, 2));
+    return NextResponse.json(emptyResult, { status: 400 });
   }
+
+  if (!userId) {
+    return NextResponse.json(
+      {
+        ...emptyResult,
+        error: "Authenticated user required.",
+      },
+      { status: 401 },
+    );
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    const missingKeyError = new Error("Missing OPENAI_API_KEY");
+    console.error("AI ERROR:", missingKeyError);
+
+    return NextResponse.json(
+      {
+        ...emptyResult,
+        error: missingKeyError.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  let extractionResponse;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${getRequiredEnv("OPENAI_API_KEY")}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-4o-mini",
-        input: [
-          {
-            role: "system",
-            content: [
-              {
-                type: "input_text",
-                text:
-                  "You are an expert system that extracts REAL professional capabilities from a freelancer case description.\n\nYour job is to identify what the person ACTUALLY DID — not general domains.\n\nRULES:\n- Be specific and concrete\n- Avoid vague terms like: 'development', 'business', 'consulting'\n- Focus on actions, systems, and outcomes\n- Infer intelligently when needed, but stay grounded\n\nExtract ONLY:\n- capabilities (max 6) -> specific skills/actions (e.g. 'authentication systems', 'pricing strategy design', 'React frontend architecture')\n- industries (max 4) -> inferred if needed (e.g. SaaS, retail, healthcare)\n- services (max 5) -> what they would sell (e.g. 'platform backend development', 'market entry strategy')\n- seniority -> one of: Junior, Mid, Senior, Expert\n\nReturn ONLY valid JSON.\nNo explanation.\nNo extra text.",
-              },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text,
-              },
-            ],
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "case_extraction",
-            strict: true,
-            schema: caseExtractionSchema,
-          },
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(fallbackResult);
-    }
-
-    const payload = (await response.json().catch(() => null)) as OpenAIResponse | null;
-    const rawText = payload ? getOutputText(payload) : "";
-
-    console.log("AI RAW RESPONSE:", rawText);
-
-    if (!rawText) {
-      return NextResponse.json(fallbackResult);
-    }
-
-    try {
-      const extraction = JSON.parse(rawText) as Omit<CaseExtractionResult, "positioning">;
-
-      if (!hasStructuredData(extraction)) {
-        return NextResponse.json(fallbackResult);
-      }
-
-      const positioningResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getRequiredEnv("OPENAI_API_KEY")}`,
-        },
-        body: JSON.stringify({
-          model: process.env.OPENAI_POSITIONING_MODEL ?? process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-4o-mini",
-          input: [
+    extractionResponse = await callOpenAIText({
+      model: process.env.OPENAI_EXTRACTION_MODEL ?? "gpt-4o-mini",
+      maxOutputTokens: EXTRACTION_MAX_OUTPUT_TOKENS,
+      input: [
+        {
+          role: "system",
+          content: [
             {
-              role: "system",
-              content: [
-                {
-                  type: "input_text",
-                  text: "Generate ONE positioning sentence from the provided data. Max 25 words. No buzzwords. Be specific. Sound human. Return ONLY valid JSON with {\"positioning\":\"...\"}. No extra text.",
-                },
-              ],
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "input_text",
-                  text: JSON.stringify(extraction),
-                },
-              ],
+              type: "input_text",
+              text:
+                'Extract structured professional signals from the case description. Return only JSON with keys: positioning, capabilities, industries, services, seniority. Keep capabilities specific. Use seniority only from: Junior, Mid, Senior, Expert, Unknown.',
             },
           ],
-          text: {
-            format: {
-              type: "json_schema",
-              name: "positioning_sentence",
-              strict: true,
-              schema: {
-                type: "object",
-                properties: {
-                  positioning: {
-                    type: "string",
-                  },
-                },
-                required: ["positioning"],
-                additionalProperties: false,
-              },
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text,
             },
-          },
-        }),
-      });
+          ],
+        },
+      ],
+    });
+  } catch (error) {
+    console.error("AI ERROR:", error);
 
-      if (!positioningResponse.ok) {
-        return NextResponse.json({
-          ...extraction,
-          positioning: "",
-        } satisfies CaseExtractionResult);
-      }
-
-      const positioningPayload = (await positioningResponse.json().catch(() => null)) as OpenAIResponse | null;
-      const rawPositioning = positioningPayload ? getOutputText(positioningPayload) : "";
-
-      if (!rawPositioning) {
-        return NextResponse.json({
-          ...extraction,
-          positioning: "",
-        } satisfies CaseExtractionResult);
-      }
-
-      const positioning = JSON.parse(rawPositioning) as { positioning?: string };
-
-      return NextResponse.json({
-        ...extraction,
-        positioning: typeof positioning.positioning === "string" ? positioning.positioning.trim() : "",
-      } satisfies CaseExtractionResult);
-    } catch {
-      return NextResponse.json(fallbackResult);
-    }
-  } catch {
-    return NextResponse.json(fallbackResult);
+    return NextResponse.json(
+      {
+        ...emptyResult,
+        error: error instanceof Error ? error.message : "OpenAI call failed.",
+      },
+      { status: 500 },
+    );
   }
+
+  console.log("AI RAW RESPONSE:", extractionResponse.rawText);
+
+  if (!extractionResponse.ok) {
+    console.error("AI ERROR:", {
+      status: extractionResponse.status,
+      statusText: extractionResponse.statusText,
+      rawText: extractionResponse.rawText,
+    });
+  }
+
+  console.log("RAW TEXT BEFORE PARSING:", extractionResponse.rawText);
+
+  const parsedOutput = tryParseJson(extractionResponse.rawText);
+  console.log("PARSED OUTPUT:", parsedOutput);
+
+  const validationResult = validateExtractionShape(parsedOutput);
+  console.log("SCHEMA VALIDATION RESULT:", validationResult);
+
+  const normalizedOutput = normalizeExtraction(parsedOutput, extractionResponse.rawText);
+  console.log("NORMALIZED OUTPUT:", normalizedOutput);
+
+  const aiResult = normalizedOutput;
+  let savedCaseId: string | null = null;
+  let caseCount = 0;
+  const rawText = text;
+  const safeTitle = rawText?.split("\n")[0]?.slice(0, 80).trim() || "Untitled case";
+  const positioning = aiResult.positioning;
+  const capabilities = aiResult.capabilities;
+  const industries = aiResult.industries;
+  const services = aiResult.services;
+  const seniority = aiResult.seniority;
+
+  try {
+    console.log("USER ID:", userId);
+    console.log("RAW TEXT:", text);
+    console.log("INSERT USER ID:", userId);
+    console.log("AI RESULT:", aiResult);
+    console.log("INSERT DATA:", {
+      positioning,
+      capabilities,
+      industries,
+    });
+
+    if (caseId) {
+      const { data: updatedCaseData, error: updateCaseError } = await supabase
+        .from("freelancer_cases")
+        .update({
+          capabilities: capabilities || [],
+          industries: industries || [],
+          positioning: positioning || null,
+          raw_text: rawText,
+          seniority: seniority || null,
+          services: services || [],
+          updated_at: new Date().toISOString(),
+        } as never)
+        .eq("id", caseId)
+        .eq("freelancer_id", userId)
+        .select("id")
+        .maybeSingle();
+
+      if (updateCaseError) {
+        console.error("CASE UPDATE ERROR:", updateCaseError);
+      } else {
+        savedCaseId = updatedCaseData ? ((updatedCaseData as { id: string }).id ?? null) : null;
+      }
+    }
+
+    if (!savedCaseId) {
+      const { data: insertedCaseData, error: insertCaseError } = await supabase
+        .from("freelancer_cases")
+        .insert([
+          {
+            freelancer_id: userId,
+            title: safeTitle,
+            case_type: "general",
+            raw_text: rawText,
+            positioning: positioning || null,
+            capabilities: capabilities || [],
+            industries: industries || [],
+            services: services || [],
+            seniority: seniority || null,
+            created_at: new Date().toISOString(),
+          },
+        ] as never)
+        .select()
+        .single();
+
+      if (insertCaseError) {
+        console.error("CASE INSERT ERROR:", insertCaseError);
+      } else {
+        console.log("INSERT PAYLOAD:", {
+          freelancer_id: userId,
+          title: safeTitle,
+          case_type: "general",
+        });
+        console.log("CASE INSERTED:", insertedCaseData);
+        savedCaseId = (insertedCaseData as { id: string }).id ?? null;
+
+        const { data: verify } = await supabase
+          .from("freelancer_cases")
+          .select("positioning, capabilities, industries")
+          .eq("id", savedCaseId)
+          .single();
+
+        console.log("VERIFY SAVED:", verify);
+      }
+    }
+
+    console.log("CASE SAVED:", {
+      freelancerId: userId,
+      caseId: savedCaseId,
+    });
+
+    const { data: verify, error: verifyError } = await supabase
+      .from("freelancer_cases")
+      .select("*")
+      .eq("freelancer_id", userId);
+
+    if (verifyError) {
+      console.error("VERIFY CASE ERROR:", verifyError);
+    } else {
+      console.log("VERIFY CASES:", verify);
+      caseCount = verify?.length ?? 0;
+    }
+  } catch (persistenceError) {
+    console.error("PERSISTENCE ERROR:", persistenceError);
+  }
+
+  const responsePayload = {
+    ...aiResult,
+    caseCount,
+    caseId: savedCaseId,
+  };
+
+  console.log("FINAL OUTPUT SENT:", JSON.stringify(responsePayload, null, 2));
+
+  return NextResponse.json(responsePayload);
 }
