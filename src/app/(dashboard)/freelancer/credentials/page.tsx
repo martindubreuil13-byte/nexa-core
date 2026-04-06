@@ -1,28 +1,19 @@
-import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
-import { TextInput } from "../../../../components/ui/input";
+import { Button } from "../../../../components/ui/button";
 import { requireUser } from "../../../../lib/auth/requireUser";
 import { createServerSupabaseClient } from "../../../../lib/supabase/server";
 import { getUserState } from "../../../../lib/user/getUserState";
-import { getFreelancerCredentials } from "../../../../services/credentials";
-import { uploadCredentialAction } from "./actions";
+import { getStoredCredentials } from "../../../../services/credentials";
+import { CredentialUploadPanel } from "./credential-upload-panel";
 
-type CredentialsPageProps = {
-  searchParams: Promise<{
-    error?: string;
-    success?: string;
-  }>;
-};
-
-export default async function FreelancerCredentialsPage({ searchParams }: CredentialsPageProps) {
+export default async function FreelancerCredentialsPage() {
   await requireUser();
   const supabase = await createServerSupabaseClient();
-  const params = await searchParams;
   const { freelancer, hasCases } = await getUserState();
 
   const credentials =
     freelancer && hasCases
-      ? await getFreelancerCredentials(supabase, freelancer.id).catch((error) => {
+      ? await getStoredCredentials(supabase, freelancer.user_id).catch((error) => {
           console.error("SUPABASE ERROR:", error);
           return [];
         })
@@ -42,69 +33,19 @@ export default async function FreelancerCredentialsPage({ searchParams }: Creden
         <Card
           className="case-flow__panel"
           title="Upload a credential"
-          description="Add one proof point at a time. Keep it simple and verifiable."
+          description="Drop in a document, review what the system extracts, and save only when it looks right."
         >
-          <form action={uploadCredentialAction} className="stack" encType="multipart/form-data">
-            <TextInput
-              autoComplete="off"
-              id="credential-title"
-              label="Title"
-              name="title"
-              placeholder="MBA"
-              required
-              disabled={!freelancer || !hasCases}
-            />
-            <TextInput
-              autoComplete="organization"
-              id="credential-organization"
-              label="Issuing organization"
-              name="issuingOrganization"
-              placeholder="INSEAD"
-              required
-              disabled={!freelancer || !hasCases}
-            />
-            <TextInput
-              id="credential-year"
-              inputMode="numeric"
-              label="Year"
-              maxLength={4}
-              name="year"
-              placeholder="2024"
-              required
-              disabled={!freelancer || !hasCases}
-            />
-            <label className="field" htmlFor="credential-file">
-              <span className="field__label">File</span>
-              <input
-                accept="application/pdf,image/*"
-                className="field__input field__file-input"
-                id="credential-file"
-                name="file"
-                required
-                type="file"
-                disabled={!freelancer || !hasCases}
-              />
-            </label>
-
-            {params.error ? (
-              <p className="auth-shell__message auth-shell__message--error">{params.error}</p>
-            ) : null}
-            {params.success ? <p className="notice">Credential uploaded successfully.</p> : null}
-            {!freelancer || !hasCases ? (
-              <div className="empty-state">
-                Add your first case before uploading credentials.
-              </div>
-            ) : null}
-
-            <div className="button-row">
-              <Button type="submit" disabled={!freelancer || !hasCases}>
-                Save credential
-              </Button>
-              <Button href="/freelancer" variant="secondary">
-                Back to workspace
-              </Button>
+          {!freelancer || !hasCases ? (
+            <div className="empty-state">
+              Add your first case before uploading credentials.
             </div>
-          </form>
+          ) : null}
+          <CredentialUploadPanel disabled={!freelancer || !hasCases} />
+          <div className="button-row">
+            <Button href="/freelancer" variant="secondary">
+              Back to workspace
+            </Button>
+          </div>
         </Card>
 
         <Card
@@ -113,32 +54,62 @@ export default async function FreelancerCredentialsPage({ searchParams }: Creden
         >
           {credentials.length > 0 ? (
             <div className="credential-list">
-              {credentials.map((credential) => (
-                <article className="credential-card" key={credential.id}>
-                  <div className="credential-card__header">
-                    <h3 className="credential-card__title">{credential.title}</h3>
-                    {credential.year ? <span className="badge">{credential.year}</span> : null}
-                  </div>
-                  <p className="credential-card__copy">
-                    {credential.issuingOrganization || "Issuing organization not provided"}
-                  </p>
-                  {credential.files.length > 0 ? (
-                    <div className="credential-files">
-                      {credential.files.map((file) => (
-                        <a
-                          className="credential-files__link"
-                          href={file.publicUrl}
-                          key={file.id}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          {file.fileName}
-                        </a>
-                      ))}
+              {credentials.map((credential) => {
+                const reasons = Array.isArray(credential.confidenceReason)
+                  ? credential.confidenceReason
+                  : [];
+                const flags = Array.isArray(credential.flags) ? credential.flags : [];
+                const summary =
+                  typeof credential.aiSummary === "string" && credential.aiSummary.trim().length > 0
+                    ? credential.aiSummary
+                    : "No summary available";
+
+                console.log("credential normalized", {
+                  id: credential.id,
+                  confidenceReason: reasons,
+                  flags,
+                  summary,
+                });
+
+                return (
+                  <article className="credential-card" key={credential.id}>
+                    <div className="credential-card__header">
+                      <h3 className="credential-card__title">{credential.title}</h3>
+                      {credential.confidenceLevel ? (
+                        <span className="badge">{credential.confidenceLevel}</span>
+                      ) : null}
                     </div>
-                  ) : null}
-                </article>
-              ))}
+                    <p className="credential-card__copy">
+                      {credential.issuer || "Issuer not provided"}
+                    </p>
+                    {credential.issueDate ? (
+                      <p className="credential-card__meta">Issued {credential.issueDate}</p>
+                    ) : null}
+                    <p className="credential-card__meta">AI-validated</p>
+                    <p className="credential-card__summary">{summary}</p>
+                    <ul className="credential-review__list credential-review__list--checks">
+                      {(reasons.length > 0 ? reasons : ["Document structure partially recognized"])
+                        .slice(0, 2)
+                        .map((reason) => (
+                          <li key={reason}>
+                            <span className="credential-review__check">✔</span>
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                    </ul>
+                    {flags.length > 0 ? (
+                      <ul className="credential-review__list">
+                        {flags.slice(0, 2).map((flag) => (
+                          <li key={flag}>
+                            <span className="credential-review__warning">⚠</span>
+                            <span>{flag}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state">

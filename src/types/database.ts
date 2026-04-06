@@ -236,6 +236,65 @@ export type Database = {
           updated_at?: string | null;
         };
       };
+      credentials: {
+        Row: {
+          id: string;
+          user_id: string;
+          file_path: string;
+          extracted_text: string;
+          ai_summary: string;
+          ai_confidence_score: number | null;
+          confidence_level: "high" | "medium" | "low" | null;
+          confidence_reason: string[] | null;
+          type: string | null;
+          skills: string[] | null;
+          flags: string[] | null;
+          user_decision: string | null;
+          title: string;
+          issuer: string | null;
+          issue_date: string | null;
+          created_at: string;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          file_path: string;
+          extracted_text: string;
+          ai_summary: string;
+          ai_confidence_score?: number | null;
+          confidence_level?: "high" | "medium" | "low" | null;
+          confidence_reason?: string[] | null;
+          type?: string | null;
+          skills?: string[] | null;
+          flags?: string[] | null;
+          user_decision?: string | null;
+          title: string;
+          issuer?: string | null;
+          issue_date?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          file_path?: string;
+          extracted_text?: string;
+          ai_summary?: string;
+          ai_confidence_score?: number | null;
+          confidence_level?: "high" | "medium" | "low" | null;
+          confidence_reason?: string[] | null;
+          type?: string | null;
+          skills?: string[] | null;
+          flags?: string[] | null;
+          user_decision?: string | null;
+          title?: string;
+          issuer?: string | null;
+          issue_date?: string | null;
+          created_at?: string;
+          updated_at?: string | null;
+        };
+      };
       matches: {
         Row: {
           id: string;

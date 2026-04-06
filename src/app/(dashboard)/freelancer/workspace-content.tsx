@@ -1,46 +1,24 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "../../../components/ui/button";
 import { createBrowserSupabaseClient } from "../../../lib/supabase/client";
 import type { FreelancerCase, WorkspaceIdentity } from "../../../services/cases";
+import type { StoredCredential } from "../../../services/credentials";
 import { CaseItemActions } from "./case-item-actions";
 
 type WorkspaceContentProps = {
   initialCases: FreelancerCase[];
+  initialCredentials: StoredCredential[];
   initialIdentity: WorkspaceIdentity;
-};
-
-type CredentialType = "Certification" | "Degree" | "Diploma" | "Award" | "Training" | "License";
-
-type CredentialDraft = {
-  title: string;
-  type: CredentialType;
-  issuer: string;
-  year: string;
-  description: string;
-  fileName: string;
-};
-
-type CredentialItem = CredentialDraft & {
-  id: string;
 };
 
 type DeleteResultPayload = {
   cases: FreelancerCase[];
   identity: WorkspaceIdentity;
   notice?: string;
-};
-
-const initialCredentialDraft: CredentialDraft = {
-  title: "",
-  type: "Certification",
-  issuer: "",
-  year: "",
-  description: "",
-  fileName: "",
 };
 
 const MAX_VISIBLE_TAGS = 5;
@@ -70,15 +48,31 @@ function getCaseTitle(rawText: string | null | undefined) {
   return title || "No description available";
 }
 
-function getProfileStrength(caseCount: number, credentialCount: number) {
-  const externalSignalCount = 0;
-  const rawStrength = Math.min(88, 24 + caseCount * 14 + credentialCount * 10 + externalSignalCount * 8);
+function getCredentialWeight(type: string | null) {
+  const normalizedType = (type ?? "").toLowerCase();
 
-  if (credentialCount === 0 && externalSignalCount === 0) {
-    return Math.min(65, rawStrength);
+  if (normalizedType.includes("degree")) {
+    return 20;
   }
 
-  return rawStrength;
+  if (
+    normalizedType.includes("certification") ||
+    normalizedType.includes("certificate") ||
+    normalizedType.includes("license")
+  ) {
+    return 10;
+  }
+
+  return 5;
+}
+
+function getProfileStrength(caseCount: number, credentials: StoredCredential[]) {
+  const credentialWeight = credentials.reduce(
+    (total, credential) => total + getCredentialWeight(credential.type),
+    0,
+  );
+
+  return Math.min(100, 24 + caseCount * 14 + credentialWeight);
 }
 
 function refinePositioning(positioning: string) {
@@ -147,15 +141,17 @@ function TagGroup({ emptyCopy, expanded, items, label, onToggle, soft = false }:
   );
 }
 
-export function WorkspaceContent({ initialCases, initialIdentity }: WorkspaceContentProps) {
+export function WorkspaceContent({
+  initialCases,
+  initialCredentials,
+  initialIdentity,
+}: WorkspaceContentProps) {
   const router = useRouter();
   const [cases, setCases] = useState(initialCases);
   const [identity, setIdentity] = useState(initialIdentity);
   const [notice, setNotice] = useState<string | null>(null);
   const [isUpdating, startTransition] = useTransition();
-  const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
-  const [credentials, setCredentials] = useState<CredentialItem[]>([]);
-  const [credentialDraft, setCredentialDraft] = useState(initialCredentialDraft);
+  const [credentials] = useState(initialCredentials);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   function handleCaseDeleted(result: DeleteResultPayload) {
@@ -199,38 +195,6 @@ export function WorkspaceContent({ initialCases, initialIdentity }: WorkspaceCon
     });
   }
 
-  function handleCredentialFieldChange(field: keyof CredentialDraft, value: string) {
-    setCredentialDraft((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function handleCredentialFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-
-    handleCredentialFieldChange("fileName", file?.name ?? "");
-  }
-
-  function handleCredentialSave(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    // TODO: Persist credentials to Supabase and storage once the backend flow is connected.
-    const nextCredential: CredentialItem = {
-      ...credentialDraft,
-      id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}`,
-      title: credentialDraft.title.trim() || "Untitled credential",
-      issuer: credentialDraft.issuer.trim() || "Unknown issuer",
-      year: credentialDraft.year.trim(),
-      description: credentialDraft.description.trim(),
-    };
-
-    setCredentials((current) => [nextCredential, ...current]);
-    setCredentialDraft(initialCredentialDraft);
-    setIsCredentialModalOpen(false);
-    setNotice("Credential added locally. Storage connection can come next.");
-  }
-
   const safeCases = (cases || []).map((freelancerCase) => ({
     ...freelancerCase,
     rawText: freelancerCase.rawText ?? "",
@@ -241,7 +205,7 @@ export function WorkspaceContent({ initialCases, initialIdentity }: WorkspaceCon
   const safeCoreCapabilities = Array.from(new Set(identity.coreCapabilities ?? []));
   const safeFunctionalSkills = Array.from(new Set(identity.functionalSkills ?? []));
   const safeIndustries = Array.from(new Set(identity.industries ?? []));
-  const profileStrength = getProfileStrength(safeCases.length, credentials.length);
+  const profileStrength = getProfileStrength(safeCases.length, credentials);
   const helperCopy =
     safeCases.length === 1
       ? "This is your first signal. Add more examples to reveal your deeper pattern."
@@ -411,42 +375,53 @@ export function WorkspaceContent({ initialCases, initialIdentity }: WorkspaceCon
             <section className="workspace-v2-panel workspace-v2-panel--credentials">
               <div className="workspace-v2-panel__header workspace-v2-panel__header--spread">
                 <div className="workspace-v2-panel__intro">
-                  <span className="workspace-v2-panel__eyebrow">Credentials &amp; Proof</span>
-                  <h2 className="workspace-v2-panel__title">Credentials &amp; Proof</h2>
+                  <span className="workspace-v2-panel__eyebrow">Validated proof</span>
+                  <h2 className="workspace-v2-panel__title">Credentials</h2>
                 </div>
-                <button
-                  className="workspace-v2-inline-action"
-                  onClick={() => setIsCredentialModalOpen(true)}
-                  type="button"
-                >
-                  + Add credential
-                </button>
+                <Button href="/freelancer/credentials" variant="secondary">
+                  + Add validated proof
+                </Button>
               </div>
 
               <p className="workspace-v2-panel__copy">
-                Upload verified proof of your experience and expertise.
+                Add AI-validated proof to strengthen your professional identity.
               </p>
 
               {credentials.length > 0 ? (
                 <div className="workspace-v2-credential-list">
-                  {credentials.map((credential) => (
-                    <article className="workspace-v2-credential" key={credential.id}>
-                      <div className="workspace-v2-credential__meta">
-                        <strong className="workspace-v2-credential__title">{credential.title}</strong>
-                        <span className="workspace-v2-credential__type">{credential.type}</span>
-                      </div>
-                      <p className="workspace-v2-credential__issuer">
-                        {credential.issuer}
-                        {credential.year ? ` · ${credential.year}` : ""}
-                      </p>
-                      {credential.description ? (
-                        <p className="workspace-v2-credential__description">{credential.description}</p>
-                      ) : null}
-                      {credential.fileName ? (
-                        <p className="workspace-v2-credential__file">{credential.fileName}</p>
-                      ) : null}
-                    </article>
-                  ))}
+                  {credentials.map((credential) => {
+                    const reasons = Array.isArray(credential.confidenceReason)
+                      ? credential.confidenceReason
+                      : [];
+
+                    return (
+                      <article className="workspace-v2-credential" key={credential.id}>
+                        <div className="workspace-v2-credential__meta">
+                          <strong className="workspace-v2-credential__title">{credential.title}</strong>
+                          <span
+                            className={`workspace-v2-credential__badge workspace-v2-credential__badge--${
+                              credential.confidenceLevel ?? "low"
+                            }`}
+                          >
+                            {credential.confidenceLevel
+                              ? `${credential.confidenceLevel[0]?.toUpperCase() ?? ""}${credential.confidenceLevel.slice(1)} confidence`
+                              : "Confidence pending"}
+                          </span>
+                        </div>
+                        <p className="workspace-v2-credential__issuer">
+                          {credential.issuer || "Issuer not provided"}
+                        </p>
+                        <p className="workspace-v2-credential__validation">AI-validated</p>
+                        {reasons.length > 0 ? (
+                          <ul className="workspace-v2-credential__reasons">
+                            {reasons.slice(0, 2).map((reason) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </article>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="workspace-v2-empty-copy">No proof added yet — strengthen your credibility.</p>
@@ -474,101 +449,6 @@ export function WorkspaceContent({ initialCases, initialIdentity }: WorkspaceCon
         </div>
       </div>
 
-      {isCredentialModalOpen ? (
-        <div
-          aria-modal="true"
-          className="modal-backdrop workspace-v2-modal-backdrop"
-          onClick={() => setIsCredentialModalOpen(false)}
-          role="dialog"
-        >
-          <div className="workspace-v2-modal-card" onClick={(event) => event.stopPropagation()}>
-            <div className="workspace-v2-panel__intro">
-              <span className="workspace-v2-panel__eyebrow">Credentials &amp; Proof</span>
-              <h2 className="workspace-v2-panel__title">Add credential</h2>
-            </div>
-            <p className="workspace-v2-panel__copy">
-              Add proof of expertise to strengthen how clients read your identity.
-            </p>
-
-            <form className="workspace-v2-modal-form" onSubmit={handleCredentialSave}>
-              <label className="field">
-                <span className="field__label">Credential title</span>
-                <input
-                  className="field__input"
-                  onChange={(event) => handleCredentialFieldChange("title", event.target.value)}
-                  placeholder="Google Ads Certification"
-                  value={credentialDraft.title}
-                />
-              </label>
-
-              <label className="field">
-                <span className="field__label">Type</span>
-                <select
-                  className="field__input"
-                  onChange={(event) =>
-                    handleCredentialFieldChange("type", event.target.value as CredentialType)
-                  }
-                  value={credentialDraft.type}
-                >
-                  {["Certification", "Degree", "Diploma", "Award", "Training", "License"].map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span className="field__label">Issuer / institution</span>
-                <input
-                  className="field__input"
-                  onChange={(event) => handleCredentialFieldChange("issuer", event.target.value)}
-                  placeholder="Google"
-                  value={credentialDraft.issuer}
-                />
-              </label>
-
-              <label className="field">
-                <span className="field__label">Year</span>
-                <input
-                  className="field__input"
-                  inputMode="numeric"
-                  maxLength={4}
-                  onChange={(event) => handleCredentialFieldChange("year", event.target.value)}
-                  placeholder="2024"
-                  value={credentialDraft.year}
-                />
-              </label>
-
-              <label className="field">
-                <span className="field__label">Short description</span>
-                <textarea
-                  className="field__input field__textarea workspace-v2-modal-textarea"
-                  onChange={(event) => handleCredentialFieldChange("description", event.target.value)}
-                  placeholder="What this proves, in one or two lines."
-                  value={credentialDraft.description}
-                />
-              </label>
-
-              <label className="field">
-                <span className="field__label">Upload file</span>
-                <input
-                  className="field__input field__file-input"
-                  onChange={handleCredentialFileChange}
-                  type="file"
-                />
-              </label>
-
-              <div className="button-row workspace-v2-modal-actions">
-                <Button type="submit">Save</Button>
-                <Button onClick={() => setIsCredentialModalOpen(false)} type="button" variant="ghost">
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

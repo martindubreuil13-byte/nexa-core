@@ -1,79 +1,61 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, TableRow } from "../../types/database";
+import { normalizeStringArray } from "./normalizeCredential";
 
-export type CredentialFile = {
-  contentType: string | null;
-  fileName: string;
+export type StoredCredential = {
+  aiSummary: string;
+  confidenceLevel: "high" | "medium" | "low";
+  confidenceReason: string[];
+  confidenceScore: number;
+  filePath: string;
+  flags: string[];
   id: string;
-  publicUrl: string;
-  storagePath: string;
-};
-
-export type FreelancerCredential = {
-  files: CredentialFile[];
-  id: string;
-  issuingOrganization: string | null;
+  issueDate: string | null;
+  issuer: string;
+  skills: string[];
   title: string;
-  year: number | null;
+  type: string | null;
+  userDecision: string;
 };
 
-export async function getFreelancerCredentials(
+export async function getStoredCredentials(
   supabase: SupabaseClient<Database>,
-  freelancerId: string,
-): Promise<FreelancerCredential[]> {
-  const { data: certificationData, error: certificationError } = await supabase
-    .from("freelancer_certifications")
+  userId: string,
+): Promise<StoredCredential[]> {
+  const { data, error } = await supabase
+    .from("credentials")
     .select("*")
-    .eq("freelancer_id", freelancerId)
-    .order("year", { ascending: false })
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (certificationError) {
-    throw certificationError;
+  if (error) {
+    throw error;
   }
 
-  const certifications = (certificationData ?? []) as Array<TableRow<"freelancer_certifications">>;
-
-  if (certifications.length === 0) {
-    return [];
-  }
-
-  const certificationIds = certifications.map((certification) => certification.id);
-  const { data: fileData, error: fileError } = await supabase
-    .from("certification_files")
-    .select("*")
-    .in("certification_id", certificationIds)
-    .order("created_at", { ascending: false });
-
-  if (fileError) {
-    throw fileError;
-  }
-
-  const files = (fileData ?? []) as Array<TableRow<"certification_files">>;
-  const filesByCertificationId = new Map<string, CredentialFile[]>();
-
-  for (const file of files) {
-    const currentFiles = filesByCertificationId.get(file.certification_id) ?? [];
-    const publicUrl = supabase.storage.from(file.bucket_name).getPublicUrl(file.storage_path).data
-      .publicUrl;
-
-    currentFiles.push({
-      id: file.id,
-      fileName: file.file_name,
-      storagePath: file.storage_path,
-      contentType: file.content_type,
-      publicUrl,
-    });
-
-    filesByCertificationId.set(file.certification_id, currentFiles);
-  }
-
-  return certifications.map((certification) => ({
-    id: certification.id,
-    title: certification.title,
-    issuingOrganization: certification.issuing_organization,
-    year: certification.year,
-    files: filesByCertificationId.get(certification.id) ?? [],
+  const credentials = (data ?? []) as Array<TableRow<"credentials">>;
+  const normalizedRows = credentials.map((row) => ({
+    id: row.id,
+    title: row.title ?? "",
+    issuer: row.issuer ?? "",
+    issueDate: row.issue_date ?? null,
+    type: row.type ?? "other",
+    aiSummary: typeof row.ai_summary === "string" ? row.ai_summary : "",
+    confidenceScore: typeof row.ai_confidence_score === "number" ? row.ai_confidence_score : 0,
+    confidenceLevel:
+      row.confidence_level === "high" ||
+      row.confidence_level === "medium" ||
+      row.confidence_level === "low"
+        ? row.confidence_level
+        : "low",
+    confidenceReason: normalizeStringArray(row.confidence_reason),
+    filePath: row.file_path,
+    flags: normalizeStringArray(row.flags),
+    skills: normalizeStringArray(row.skills),
+    userDecision: row.user_decision ?? "pending",
   }));
+
+  console.log("normalized credentials rows", normalizedRows);
+
+  return normalizedRows;
 }
